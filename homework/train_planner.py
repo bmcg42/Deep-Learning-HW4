@@ -154,7 +154,7 @@ def train(
       logger.add_scalar('val_accuracy', val_acc, epoch)
 
       # print on first, last, every 10th epoch
-      if epoch == 0 or epoch == num_epoch - 1 or (epoch + 1) % (num_epoch/10) == 0:
+      if epoch == 0 or epoch == num_epoch - 1 or (epoch + 1) % (num_epoch//10) == 0:
         print(f"Epoch {epoch+1:2d}/{num_epoch:2d} |>")
         print(f">>>  Train - Acc: {train_acc:.2f} | Long: {train_long:.3f} | Lat: {train_lat:.3f} ||")
         print(f">>>  Val --- Acc: {val_acc:.2f} | Long: {val_long:.3f} | Lat: {val_lat:.3f} ||")
