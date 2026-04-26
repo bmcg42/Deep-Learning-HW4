@@ -13,16 +13,63 @@ class MLPPlanner(nn.Module):
         self,
         n_track: int = 10,
         n_waypoints: int = 3,
+        stage_depth: int = 1,
+        stage_width: list = [64,64,64]
     ):
         """
         Args:
             n_track (int): number of points in each side of the track
             n_waypoints (int): number of waypoints to predict
         """
-        super().__init__()
+        class Block(torch.nn.Module): # Define block of layers
+          def __init__(self, in_channels,out_channels):
+              super().__init__()
+              self.conv = torch.nn.Linear(in_channels,out_channels)
+              self.norm = torch.nn.LayerNorm(out_channels)
+              self.relu = torch.nn.ReLU()
+              # Check if skip connection is neccessary
+              if in_channels != out_channels:
+                  self.skip = torch.nn.Linear(in_channels,out_channels)
+              else:
+                  self.skip = torch.nn.Identity()
 
+          def forward(self,x):
+              y = self.conv(x)
+              y = self.norm(y)
+              y = self.relu(y)
+              return y + self.skip(x)
+
+        super(MLPPlanner,self).__init__()
         self.n_track = n_track
         self.n_waypoints = n_waypoints
+        
+
+        # Input dimension
+        c = 4 * self.n_track # (x,y)L + (x,y)R for each n_track
+        self.input_norm = nn.LayerNorm(c) # input normalization
+
+        # Create embedding layer
+        embedding = stage_width[0]
+        layers_ls = [torch.nn.Linear(c,embedding)]
+        c = embedding
+
+        # Add stages at each specified width
+        for i, s in enumerate(stage_width):
+          if i == 0: # First layer
+              layers_ls.append(nn.Linear(c, s))
+          else: # Transition stage
+              layers_ls.append(nn.Linear(prev_s, s))
+          # Add stages at designated depth
+          for _ in range(stage_depth):
+              layers_ls.append(Block(s, s))
+
+          prev_s = s
+
+        # Add layer to format output to correct size
+        layers_ls.append(nn.Linear(c, self.n_waypoints * 2)) # waypoints x 2 coords
+
+        # Compile layers
+        self.model = torch.nn.Sequential(*layers_ls)
 
     def forward(
         self,
@@ -43,7 +90,11 @@ class MLPPlanner(nn.Module):
         Returns:
             torch.Tensor: future waypoints with shape (b, n_waypoints, 2)
         """
-        raise NotImplementedError
+        x = torch.cat([track_left, track_right], dim=1)  # (B, 2 * n_track, 2)
+        x = x.flatten(start_dim=1)           # (B, 4 * n_track)
+        x = self.input_norm(x) # input normalization
+        out = self.model(x)
+        return out.view(-1, self.n_waypoints, 2)
 
 
 class TransformerPlanner(nn.Module):
