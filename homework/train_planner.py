@@ -33,6 +33,8 @@ def train(
     num_epoch: int = 50,
     batch_size: int = 128,
     seed: int = 2024,
+    long_weight: int = 1,
+    lat_weight: int = 1,
     **kwargs,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else
@@ -68,10 +70,14 @@ def train(
 
     # loss functions
     mse_loss = torch.nn.MSELoss(reduction='none')
-    def masked_mse_loss(pred, target, mask): # function for applying mask
-      mask = mask.float()
-      loss = mse_loss(pred, target)
-      return (loss * mask).sum() / mask.sum()
+    def masked_mse_loss(pred, labels, mask): # function for applying mask
+      mask = mask.float().unsqueeze(-1)  # (B, 3, 1)
+      loss = (pred - labels) ** 2  # (B, 3, 2)
+      # weight coordinates differently
+      loss[..., 0] *= long_weight   # longitudinal
+      loss[..., 1] *= lat_weight    # lateral
+      loss = loss * mask
+      return loss.sum() / mask.sum()
 
     # Choose optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
@@ -94,11 +100,11 @@ def train(
 
         # Select correct input and predict
         preds = forward_model(model, model_name, data_dict, device)
-        
+           
         # Calculate loss
         loss = masked_mse_loss(
           pred = preds,
-          target = waypoints,
+          labels = waypoints,
           mask = mask
         )
         loss.backward()
@@ -106,7 +112,7 @@ def train(
 
         # Log predictions
         train_perf.add(
-          pred = preds,
+          preds = preds,
           labels = waypoints,
           labels_mask = mask
         )
@@ -138,7 +144,7 @@ def train(
 
           # Log predictions
           val_perf.add(
-            pred = preds,
+            preds = preds,
             labels = waypoints,
             labels_mask = mask
           )
@@ -158,6 +164,7 @@ def train(
         print(f"Epoch {epoch+1:2d}/{num_epoch:2d} |>")
         print(f">>>  Train - Acc: {train_acc:.2f} | Long: {train_long:.3f} | Lat: {train_lat:.3f} ||")
         print(f">>>  Val --- Acc: {val_acc:.2f} | Long: {val_long:.3f} | Lat: {val_lat:.3f} ||")
+        print(f">>>  Goal ------------ | Long < 0.2: {val_long<0.2} | Lat < 0.6: {val_lat<0.6} ||")
 
     # save model
     save_model(model)

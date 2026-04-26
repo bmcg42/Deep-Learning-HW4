@@ -45,7 +45,7 @@ class MLPPlanner(nn.Module):
         
 
         # Input dimension
-        c = 4 * self.n_track # (x,y)L + (x,y)R for each n_track
+        c = 8 * self.n_track 
         self.input_norm = nn.LayerNorm(c) # input normalization
 
         # Create embedding layer
@@ -66,7 +66,7 @@ class MLPPlanner(nn.Module):
           prev_s = s
 
         # Add layer to format output to correct size
-        layers_ls.append(nn.Linear(c, self.n_waypoints * 2)) # waypoints x 2 coords
+        layers_ls.append(nn.Linear(prev_s, self.n_waypoints * 2)) # waypoints x 2 coords
 
         # Compile layers
         self.model = torch.nn.Sequential(*layers_ls)
@@ -90,7 +90,12 @@ class MLPPlanner(nn.Module):
         Returns:
             torch.Tensor: future waypoints with shape (b, n_waypoints, 2)
         """
-        x = torch.cat([track_left, track_right], dim=1)  # (B, 2 * n_track, 2)
+        x = torch.cat([
+          track_left,
+          track_right,
+          (track_left + track_right) / 2, # midpoint
+          track_left - track_right], # width
+          dim=1)  # (B, 2 * n_track, 2)
         x = x.flatten(start_dim=1)           # (B, 4 * n_track)
         x = self.input_norm(x) # input normalization
         out = self.model(x)
