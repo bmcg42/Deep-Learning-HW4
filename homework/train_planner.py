@@ -69,10 +69,9 @@ def train(
           return model(image)
 
     # loss functions
-    mse_loss = torch.nn.MSELoss(reduction='none')
     def masked_mse_loss(pred, labels, mask): # function for applying mask
       mask = mask.float().unsqueeze(-1)  # (B, 3, 1)
-      loss = (pred - labels) ** 2  # (B, 3, 2)
+      loss = torch.abs(pred - labels)  # (B, 3, 2)
       # weight coordinates differently
       loss[..., 0] *= long_weight   # longitudinal
       loss[..., 1] *= lat_weight    # lateral
@@ -165,6 +164,11 @@ def train(
         print(f">>>  Train - Acc: {train_acc:.2f} | Long: {train_long:.3f} | Lat: {train_lat:.3f} ||")
         print(f">>>  Val --- Acc: {val_acc:.2f} | Long: {val_long:.3f} | Lat: {val_lat:.3f} ||")
         print(f">>>  Goal ------------ | Long < 0.2: {val_long<0.2} | Lat < 0.6: {val_lat<0.6} ||")
+      
+      # Early stopping
+      if val_long < 0.2 and val_lat < 0.6:
+        print(f">>> Early stopping: goal reached at epoch {epoch}")
+        break
 
     # save model
     save_model(model)

@@ -13,8 +13,8 @@ class MLPPlanner(nn.Module):
         self,
         n_track: int = 10,
         n_waypoints: int = 3,
-        stage_depth: int = 1,
-        stage_width: list = [64,64,64]
+        stage_depth: int = 3,
+        stage_width: list = [128,64,64,64]
     ):
         """
         Args:
