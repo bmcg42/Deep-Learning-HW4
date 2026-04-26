@@ -139,16 +139,73 @@ class TransformerPlanner(nn.Module):
 
 
 class CNNPlanner(torch.nn.Module):
+    class Block(torch.nn.Module):
+          def __init__(self,input_c,output_c,k_size,stride,n_conv):
+            super().__init__()
+            self.relu = torch.nn.ReLU()
+            padding = (k_size - 1) // 2
+            layers = []
+            in_c = input_c
+            for i in range(n_conv): # Can adjust while training
+              s = stride if i == 0 else 1 # only downsample at first conv
+              layers.append(torch.nn.Conv2d(in_c,output_c,k_size,s,padding))
+              layers.append(torch.nn.ReLU())
+              in_c = output_c
+            
+            self.block = torch.nn.Sequential(*layers)
+
+            if input_c != output_c or stride != 1:
+                self.proj = nn.Conv2d(input_c, output_c, kernel_size=1, stride=stride)
+            else:
+                self.proj = nn.Identity()
+          def forward(self,x):
+            # Add non-linearity after linear combo
+            return self.relu(self.block(x) + self.proj(x)) 
     def __init__(
         self,
         n_waypoints: int = 3,
+        in_channels: int = 3,
+        k_size: int = 3,
+        init_channels: int = 16,
+        n_conv: int = 3, # Number of convolutions per block
+        n_stages: int = 3, # Number of stages (Channels increase by 2x at each stage)
+        stage_size: int = 1 # Number of convolutions per block
     ):
-        super().__init__()
+        super(CNNPlanner, self).__init__()
 
         self.n_waypoints = n_waypoints
 
         self.register_buffer("input_mean", torch.as_tensor(INPUT_MEAN), persistent=False)
         self.register_buffer("input_std", torch.as_tensor(INPUT_STD), persistent=False)
+
+        # Add first layer
+        network = [
+          torch.nn.Conv2d(in_channels,init_channels,k_size,padding=(k_size-1)//2),
+          torch.nn.ReLU()
+          ]
+
+        # Add blocks
+        c1 = init_channels
+        for _ in range(n_stages):
+          c2 = c1*2
+          # first block in stage, increase channels + reduce resolution
+          network.append(self.Block(c1, c2, k_size,
+           stride = 2, n_conv = n_conv))
+
+          # remaining blocks, consistent channels and resolution
+          for _ in range(stage_size - 1):
+              network.append(self.Block(c2, c2, k_size, 1, n_conv))
+          
+          # Next stage input size
+          c1 = c2
+
+        # Add 1x1 conv as classifier
+        network.append(torch.nn.Conv2d(c1,2 * n_waypoints,1))
+
+        # Add GAP for selection
+        network.append(torch.nn.AdaptiveAvgPool2d((1, 1)))
+
+        self.ResNet = torch.nn.Sequential(*network)
 
     def forward(self, image: torch.Tensor, **kwargs) -> torch.Tensor:
         """
@@ -160,8 +217,8 @@ class CNNPlanner(torch.nn.Module):
         """
         x = image
         x = (x - self.input_mean[None, :, None, None]) / self.input_std[None, :, None, None]
-
-        raise NotImplementedError
+        out = self.ResNet(x)
+        return out.view(x.size(0), self.n_waypoints, 2)   
 
 
 MODEL_FACTORY = {

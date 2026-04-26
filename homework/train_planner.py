@@ -67,6 +67,9 @@ def train(
       elif model_name == "cnn_planner":
           image = data_dict["image"].to(device)
           return model(image)
+      
+    # Early stopping criteria
+    goal = [0.2,0.6] if model_name != "cnn_planner" else [0.3,0.45]
 
     # loss functions
     def masked_mse_loss(pred, labels, mask): # function for applying mask
@@ -163,10 +166,10 @@ def train(
         print(f"Epoch {epoch+1:2d}/{num_epoch:2d} |>")
         print(f">>>  Train - Acc: {train_acc:.2f} | Long: {train_long:.3f} | Lat: {train_lat:.3f} ||")
         print(f">>>  Val --- Acc: {val_acc:.2f} | Long: {val_long:.3f} | Lat: {val_lat:.3f} ||")
-        print(f">>>  Goal ------------ | Long < 0.2: {val_long<0.2} | Lat < 0.6: {val_lat<0.6} ||")
+        print(f">>>  Goal ------------ | Long < {goal[0]}: {val_long<goal[0]} | Lat < {goal[1]}: {val_lat<goal[1]} ||")
       
       # Early stopping
-      if val_long < 0.2 and val_lat < 0.6:
+      if val_long < goal[0] and val_lat < goal[1]:
         print(f">>> Early stopping: goal reached at epoch {epoch}")
         break
 
