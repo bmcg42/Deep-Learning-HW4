@@ -169,7 +169,7 @@ class CNNPlanner(torch.nn.Module):
         init_channels: int = 16,
         n_conv: int = 3, # Number of convolutions per block
         n_stages: int = 3, # Number of stages (Channels increase by 2x at each stage)
-        stage_size: int = 1 # Number of convolutions per block
+        stage_size: int = 2 # Number of convolutions per block
     ):
         super(CNNPlanner, self).__init__()
 
