@@ -108,65 +108,44 @@ class TransformerPlanner(nn.Module):
       n_track: int = 10,
       n_waypoints: int = 3,
       d_model: int = 64,
+      n_layers: int = 1,
+      n_heads: int = 4
   ):
-    class TransformerLayer(torch.nn.Module):
-      def __init__(self, d_model, n_heads, dim_feedforward=4*128):
-        super().__init__()
-        self.norm1 = torch.nn.LayerNorm(d_model)
-        self.MHA = torch.nn.MultiheadAttention(
-            embed_dim=d_model,
-            num_heads=n_heads,
-            batch_first=True
-        )
-        self.norm2 = torch.nn.LayerNorm(d_model)
-        self.MLP = torch.nn.Sequential(
-            torch.nn.Linear(d_model, dim_feedforward),
-            torch.nn.ReLU(),
-            torch.nn.Linear(dim_feedforward, d_model)
-        )
-
-      def forward(self, x, memory):
-        # x: (batch, n_waypoints, d_model)
-        # memory: (batch, seq_len, d_model)
-        y1 = self.norm1(x)
-        attn_out, _ = self.MHA(
-            query=y1,
-            key=memory,
-            value=memory
-        )
-        y1 = x + attn_out
-        y2 = self.norm2(y1)
-        y2 = self.MLP(y2)
-        return y1 + y2
-
     super().__init__()
-
     self.n_track = n_track
     self.n_waypoints = n_waypoints
-
+    # Query embeddings (waypoints)
     self.query_embed = nn.Embedding(n_waypoints, d_model)
+    # Input projection (lane points → embedding)
+    self.input_proj = nn.Linear(2, d_model)
+    # Transformer decoder
+    decoder_layer = nn.TransformerDecoderLayer(
+        d_model=d_model,
+        nhead=n_heads,
+        batch_first=True
+    )
+    self.transformer = nn.TransformerDecoder(
+        decoder_layer,
+        num_layers=n_layers
+    )
+    # Output projection
+    self.output_format = nn.Linear(d_model, 2)
 
-  def forward(
-      self,
-      track_left: torch.Tensor,
-      track_right: torch.Tensor,
-      **kwargs,
-  ) -> torch.Tensor:
-    """
-    Predicts waypoints from the left and right boundaries of the track.
-
-    During test time, your model will be called with
-    model(track_left=..., track_right=...), so keep the function signature as is.
-
-    Args:
-        track_left (torch.Tensor): shape (b, n_track, 2)
-        track_right (torch.Tensor): shape (b, n_track, 2)
-
-    Returns:
-        torch.Tensor: future waypoints with shape (b, n_waypoints, 2)
-    """
-    raise NotImplementedError
-
+  def forward(self, track_left, track_right, **kwargs):
+      # Combine lanes
+      track = torch.cat([track_left, track_right], dim=1)
+      # (b, 2*n_track, 2)
+      # Encode lane features
+      memory = self.input_proj(track)
+      # (b, seq_len, d_model)
+      # Prepare queries
+      batch_size = track.shape[0]
+      query = self.query_embed.weight.unsqueeze(0).repeat(batch_size, 1, 1)
+      # (b, n_waypoints, d_model)
+      # Transformer
+      out = self.transformer(tgt=query, memory=memory)
+      # Project to coordinates
+      return self.output_format(out)
 
 class CNNPlanner(torch.nn.Module):
     class Block(torch.nn.Module):
