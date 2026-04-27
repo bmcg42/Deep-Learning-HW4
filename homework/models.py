@@ -103,39 +103,69 @@ class MLPPlanner(nn.Module):
 
 
 class TransformerPlanner(nn.Module):
-    def __init__(
-        self,
-        n_track: int = 10,
-        n_waypoints: int = 3,
-        d_model: int = 64,
-    ):
+  def __init__(
+      self,
+      n_track: int = 10,
+      n_waypoints: int = 3,
+      d_model: int = 64,
+  ):
+    class TransformerLayer(torch.nn.Module):
+      def __init__(self, d_model, n_heads, dim_feedforward=4*128):
         super().__init__()
+        self.norm1 = torch.nn.LayerNorm(d_model)
+        self.MHA = torch.nn.MultiheadAttention(
+            embed_dim=d_model,
+            num_heads=n_heads,
+            batch_first=True
+        )
+        self.norm2 = torch.nn.LayerNorm(d_model)
+        self.MLP = torch.nn.Sequential(
+            torch.nn.Linear(d_model, dim_feedforward),
+            torch.nn.ReLU(),
+            torch.nn.Linear(dim_feedforward, d_model)
+        )
 
-        self.n_track = n_track
-        self.n_waypoints = n_waypoints
+      def forward(self, x, memory):
+        # x: (batch, n_waypoints, d_model)
+        # memory: (batch, seq_len, d_model)
+        y1 = self.norm1(x)
+        attn_out, _ = self.MHA(
+            query=y1,
+            key=memory,
+            value=memory
+        )
+        y1 = x + attn_out
+        y2 = self.norm2(y1)
+        y2 = self.MLP(y2)
+        return y1 + y2
 
-        self.query_embed = nn.Embedding(n_waypoints, d_model)
+    super().__init__()
 
-    def forward(
-        self,
-        track_left: torch.Tensor,
-        track_right: torch.Tensor,
-        **kwargs,
-    ) -> torch.Tensor:
-        """
-        Predicts waypoints from the left and right boundaries of the track.
+    self.n_track = n_track
+    self.n_waypoints = n_waypoints
 
-        During test time, your model will be called with
-        model(track_left=..., track_right=...), so keep the function signature as is.
+    self.query_embed = nn.Embedding(n_waypoints, d_model)
 
-        Args:
-            track_left (torch.Tensor): shape (b, n_track, 2)
-            track_right (torch.Tensor): shape (b, n_track, 2)
+  def forward(
+      self,
+      track_left: torch.Tensor,
+      track_right: torch.Tensor,
+      **kwargs,
+  ) -> torch.Tensor:
+    """
+    Predicts waypoints from the left and right boundaries of the track.
 
-        Returns:
-            torch.Tensor: future waypoints with shape (b, n_waypoints, 2)
-        """
-        raise NotImplementedError
+    During test time, your model will be called with
+    model(track_left=..., track_right=...), so keep the function signature as is.
+
+    Args:
+        track_left (torch.Tensor): shape (b, n_track, 2)
+        track_right (torch.Tensor): shape (b, n_track, 2)
+
+    Returns:
+        torch.Tensor: future waypoints with shape (b, n_waypoints, 2)
+    """
+    raise NotImplementedError
 
 
 class CNNPlanner(torch.nn.Module):
